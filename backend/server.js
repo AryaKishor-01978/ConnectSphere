@@ -2,6 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const https = require("https");
+const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const jwt = require("jsonwebtoken");
@@ -24,22 +25,27 @@ const app = express();
 const allowedOrigins = [
   "https://localhost:5173",
   "https://127.0.0.1:5173",
-  "https://192.168.1.59:5173"
-];
+  "https://192.168.1.59:5173",
+  process.env.FRONTEND_URL
+].filter(Boolean);
 
-// CREATE HTTPS SERVER
-const server = https.createServer(
-  {
-    key: fs.readFileSync(
-      path.join(__dirname, "../frontend/localhost-key.pem")
-    ),
-
-    cert: fs.readFileSync(
-      path.join(__dirname, "../frontend/localhost.pem")
-    )
-  },
-  app
-);
+// CREATE SERVER
+// Render handles public HTTPS automatically.
+// Local development continues using your HTTPS certificates.
+const server =
+  process.env.NODE_ENV === "production"
+    ? http.createServer(app)
+    : https.createServer(
+        {
+          key: fs.readFileSync(
+            path.join(__dirname, "../frontend/localhost-key.pem")
+          ),
+          cert: fs.readFileSync(
+            path.join(__dirname, "../frontend/localhost.pem")
+          )
+        },
+        app
+      );
 
 // MIDDLEWARE
 app.use(
@@ -77,9 +83,7 @@ io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
 
     if (!token) {
-      return next(
-        new Error("Authentication required")
-      );
+      return next(new Error("Authentication required"));
     }
 
     const decoded = jwt.verify(
@@ -90,11 +94,8 @@ io.use((socket, next) => {
     socket.userId = decoded.id;
 
     next();
-
   } catch (error) {
-    next(
-      new Error("Invalid or expired authentication token")
-    );
+    next(new Error("Invalid or expired authentication token"));
   }
 });
 
@@ -106,18 +107,12 @@ const whiteboardRooms = new Map();
 
 // SOCKET CONNECTION
 io.on("connection", (socket) => {
-
-  console.log(
-    "Authenticated user connected:",
-    socket.userId
-  );
-
+  console.log("Authenticated user connected:", socket.userId);
   console.log("Socket ID:", socket.id);
 
   // JOIN MEETING ROOM WITH AUTHORIZATION
   socket.on("join-room", async (roomId) => {
     try {
-
       if (
         typeof roomId !== "string" ||
         !roomId.trim() ||
@@ -126,7 +121,6 @@ io.on("connection", (socket) => {
         socket.emit("meeting-error", {
           message: "Invalid meeting ID"
         });
-
         return;
       }
 
@@ -139,7 +133,6 @@ io.on("connection", (socket) => {
         socket.emit("meeting-error", {
           message: "Meeting not found"
         });
-
         return;
       }
 
@@ -156,7 +149,6 @@ io.on("connection", (socket) => {
           message:
             "You are not authorized to enter this meeting. Please get host approval."
         });
-
         return;
       }
 
@@ -186,24 +178,16 @@ io.on("connection", (socket) => {
         socket.id
       );
 
-      console.log(
-        "Authorized user joined room:",
-        roomId
-      );
+      console.log("Authorized user joined room:", roomId);
 
     } catch (error) {
-
-      console.error(
-        "Meeting authorization error:",
-        error
-      );
+      console.error("Meeting authorization error:", error);
 
       socket.emit("meeting-error", {
         message: "Unable to verify meeting access"
       });
     }
   });
-
 
   // CHECK WHETHER TWO USERS SHARE AN AUTHORIZED ROOM
   const canCommunicateWith = (target) => {
@@ -213,7 +197,7 @@ io.on("connection", (socket) => {
       return false;
     }
 
-    return [...socket.rooms].some(room => {
+    return [...socket.rooms].some((room) => {
       return (
         room !== socket.id &&
         targetSocket.rooms.has(room)
@@ -266,12 +250,10 @@ io.on("connection", (socket) => {
     });
   });
 
-
   // WHITEBOARD DRAW
   socket.on(
     "whiteboard-draw",
     ({ roomId, segment }) => {
-
       if (
         !roomId ||
         !socket.rooms.has(roomId) ||
@@ -298,7 +280,6 @@ io.on("connection", (socket) => {
 
   // WHITEBOARD CLEAR
   socket.on("whiteboard-clear", (roomId) => {
-
     if (
       !roomId ||
       !socket.rooms.has(roomId)
@@ -310,19 +291,13 @@ io.on("connection", (socket) => {
 
     io.to(roomId).emit("whiteboard-clear");
 
-    console.log(
-      "Whiteboard cleared:",
-      roomId
-    );
+    console.log("Whiteboard cleared:", roomId);
   });
 
   // HANDLE USER LEAVING
   socket.on("disconnecting", () => {
-
     for (const room of socket.rooms) {
-
       if (room !== socket.id) {
-
         socket.to(room).emit(
           "user-left",
           socket.id
@@ -333,13 +308,8 @@ io.on("connection", (socket) => {
 
   // DISCONNECT
   socket.on("disconnect", () => {
-
-    console.log(
-      "User disconnected:",
-      socket.id
-    );
+    console.log("User disconnected:", socket.id);
   });
-
 });
 
 // SERVER PORT
@@ -347,25 +317,17 @@ const PORT = process.env.PORT || 5000;
 
 // START SERVER
 const startServer = async () => {
-
   try {
-
     await connectDB();
 
     server.listen(PORT, "0.0.0.0", () => {
-
       console.log(
-        `ConnectSphere HTTPS server running on port ${PORT}`
+        `ConnectSphere server running on port ${PORT}`
       );
     });
 
   } catch (error) {
-
-    console.error(
-      "Server startup failed:",
-      error
-    );
-
+    console.error("Server startup failed:", error);
     process.exit(1);
   }
 };
